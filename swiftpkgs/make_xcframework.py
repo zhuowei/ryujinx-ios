@@ -13,7 +13,7 @@ DOTNET_DYLIBS = [
     "libSystem.Security.Cryptography.Native.Apple.dylib",
 ]
 library_paths = [
-    "../makenet/runtime/artifacts/bin/coreclr/OSX.arm64.Debug/" + a
+    "../makenet/runtime/artifacts/bin/coreclr/OSX.arm64.Release/" + a
     for a in DOTNET_DYLIBS
 ]
 library_args = []

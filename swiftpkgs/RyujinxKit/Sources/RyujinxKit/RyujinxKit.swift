@@ -46,6 +46,22 @@ public func withArrayOfCStrings<R>(
 }
 
 public func startCoreClr() {
+  DispatchQueue.main.async(execute: startCoreClr2)
+}
+public func startCoreClr2() {
+  // expand the top of stack; hope this works...
+  let pthreadSelf = pthread_self()
+  let stackCurrentTop = pthread_get_stackaddr_np(pthreadSelf)
+  let stackCurrentSize = pthread_get_stacksize_np(pthreadSelf)
+  let stackCurrentBottom = stackCurrentTop - stackCurrentSize
+  let extraSize = 7 * 1024 * 1024
+  let newMappedStack = mmap(
+    stackCurrentBottom - extraSize, extraSize, PROT_READ | PROT_WRITE,
+    MAP_ANONYMOUS | MAP_FIXED | MAP_PRIVATE, -1, 0)
+  if newMappedStack == MAP_FAILED {
+    print("can't expand the stack")
+    return
+  }
   // shut up SDL2
   SDL_SetMainReady()
   // Debugger crashes during init; turn it off
@@ -81,9 +97,10 @@ public func startCoreClr() {
   // (hacker voice) I'm in
   let assemblyPath = resBase + "/Ryujinx.Headless.SDL2.dll"
   var exitCode: UInt32 = 0
-  let rootDirectory =
-    FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path + "/Ryujinx"
-  let fileToRun = resBase + "/hbmenu.nro"
+  let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    .path
+  let rootDirectory = documentDirectory + "/Ryujinx"
+  let fileToRun = documentDirectory + "/hbmenu.nro"
   let ryujinxArgs = [
     "--enable-debug-logs", "true", "--enable-trace-logs", "true", "--memory-manager-mode",
     "SoftwarePageTable", fileToRun,

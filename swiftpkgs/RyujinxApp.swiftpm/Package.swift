@@ -31,7 +31,8 @@ let package = Package(
         .landscapeRight,
         .landscapeLeft,
         .portraitUpsideDown(.when(deviceFamilies: [.pad])),
-      ]
+      ],
+      additionalInfoPlistContentFilePath: "MoreInfo.plist"
     )
   ],
   dependencies: [
