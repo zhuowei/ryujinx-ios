@@ -1,4 +1,0 @@
-module RyujinxFramework {
-  header "coreclrhost.h"
-  export *
-}

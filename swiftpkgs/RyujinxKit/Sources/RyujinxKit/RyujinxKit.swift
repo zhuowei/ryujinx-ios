@@ -1,5 +1,5 @@
 import Foundation
-import RyujinxFramework
+import FrameworkHeaders
 
 var coreclrHostHandle: UnsafeMutableRawPointer?
 var coreclrDomainId: UInt32 = 0
@@ -46,10 +46,17 @@ public func withArrayOfCStrings<R>(
 }
 
 public func startCoreClr() {
+  // shut up SDL2
+  SDL_SetMainReady()
+  // Debugger crashes during init; turn it off
+  setenv("DOTNET_EnableDiagnostics", "0", 1)
   // We need TRUSTED_PLATFORM_ASSEMBLIES since CoreCLR by default looks in the same directory as libcoreclr.dylib
-  let propertyKeys = ["TRUSTED_PLATFORM_ASSEMBLIES", "APP_PATHS"]
+
   let resBase = Bundle.module.path(forResource: "res", ofType: nil)!
-  let propertyValues = [resBase + "/System.Private.CoreLib.dll", resBase]
+  let sdl2Path = Bundle.main.path(forResource: "Frameworks/SDL2.framework", ofType: nil)!
+
+  let propertyKeys = ["TRUSTED_PLATFORM_ASSEMBLIES", "APP_PATHS", "NATIVE_DLL_SEARCH_DIRECTORIES"]
+  let propertyValues = [resBase + "/System.Private.CoreLib.dll", resBase, sdl2Path]
   var err: Int32 = 0
   withArrayOfCStrings(propertyKeys) { propertyKeysRaw in
     var propertyKeysRaw = propertyKeysRaw.map({ UnsafePointer<CChar>($0) })
@@ -72,10 +79,25 @@ public func startCoreClr() {
     return
   }
   // (hacker voice) I'm in
-  let assemblyPath = resBase + "/helloworldpls.dll"
+  let assemblyPath = resBase + "/Ryujinx.Headless.SDL2.dll"
   var exitCode: UInt32 = 0
-  let err2 = coreclr_execute_assembly(
-    coreclrHostHandle, coreclrDomainId, 0, nil, assemblyPath, &exitCode)
+  let rootDirectory =
+    FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path + "/Ryujinx"
+  let fileToRun = resBase + "/hbmenu.nro"
+  let ryujinxArgs = [
+    "--enable-debug-logs", "true", "--enable-trace-logs", "true", "--memory-manager-mode",
+    "SoftwarePageTable", fileToRun,
+  ]
+  var err2: Int32 = 0
+  withArrayOfCStrings(ryujinxArgs) { ryujinxArgsRaw in
+    var ryujinxArgsRaw = ryujinxArgsRaw.map({ UnsafePointer<CChar>($0) })
+    ryujinxArgsRaw.withUnsafeMutableBufferPointer { ryujinxArgsRawMutable in
+
+      err2 = coreclr_execute_assembly(
+        coreclrHostHandle, coreclrDomainId, Int32(ryujinxArgs.count),
+        ryujinxArgsRawMutable.baseAddress, assemblyPath, &exitCode)
+    }
+  }
   guard err2 == 0 else {
     print("coreclr_execute_assembly_ptr failed: \(err)")
     return
