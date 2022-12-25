@@ -49,6 +49,10 @@ public func startCoreClr() {
   DispatchQueue.main.async(execute: startCoreClr2)
 }
 public func startCoreClr2() {
+  guard initHookMmap() else {
+    print("mmap hook init failed!")
+    return
+  }
   // expand the top of stack; hope this works...
   let pthreadSelf = pthread_self()
   let stackCurrentTop = pthread_get_stackaddr_np(pthreadSelf)
@@ -70,9 +74,20 @@ public func startCoreClr2() {
 
   let resBase = Bundle.module.path(forResource: "res", ofType: nil)!
   let sdl2Path = Bundle.main.path(forResource: "Frameworks/SDL2.framework", ofType: nil)!
+  // no, I don't know why PInvokeOverrideFn isn't imported as convention c
+  // let pInvokeOverrideFnClosure: PInvokeOverrideFn = pInvokeOverride
+  typealias PInvokeOverrideFnBetter = @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?)
+    -> UnsafeRawPointer?
+  let pInvokeOverrideFnClosure: PInvokeOverrideFnBetter = pInvokeOverride
+  let pInvokeOverrideAddr = unsafeBitCast(pInvokeOverrideFnClosure, to: UInt64.self)
+  let pInvokeOverrideStr = "0x" + String(pInvokeOverrideAddr, radix: 16)
 
-  let propertyKeys = ["TRUSTED_PLATFORM_ASSEMBLIES", "APP_PATHS", "NATIVE_DLL_SEARCH_DIRECTORIES"]
-  let propertyValues = [resBase + "/System.Private.CoreLib.dll", resBase, sdl2Path]
+  let propertyKeys = [
+    "TRUSTED_PLATFORM_ASSEMBLIES", "APP_PATHS", "NATIVE_DLL_SEARCH_DIRECTORIES", "PINVOKE_OVERRIDE",
+  ]
+  let propertyValues = [
+    resBase + "/System.Private.CoreLib.dll", resBase, sdl2Path, pInvokeOverrideStr,
+  ]
   var err: Int32 = 0
   withArrayOfCStrings(propertyKeys) { propertyKeysRaw in
     var propertyKeysRaw = propertyKeysRaw.map({ UnsafePointer<CChar>($0) })
@@ -103,7 +118,7 @@ public func startCoreClr2() {
   let fileToRun = documentDirectory + "/hbmenu.nro"
   let ryujinxArgs = [
     "--enable-debug-logs", "true", "--enable-trace-logs", "true", "--memory-manager-mode",
-    "SoftwarePageTable", fileToRun,
+    "SoftwarePageTable", "--graphics-backend", "Vulkan", fileToRun,
   ]
   var err2: Int32 = 0
   withArrayOfCStrings(ryujinxArgs) { ryujinxArgsRaw in
@@ -119,4 +134,57 @@ public func startCoreClr2() {
     print("coreclr_execute_assembly_ptr failed: \(err)")
     return
   }
+}
+
+var g_HookMmapReserved4GB: UnsafeMutableRawPointer! = nil
+var g_HookMmapReserved1GB: UnsafeMutableRawPointer! = nil
+
+func initHookMmap() -> Bool {
+  g_HookMmapReserved4GB = mmap(
+    nil, 0x1_0000_0000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+  if g_HookMmapReserved4GB == nil {
+    print("can't allocate 4gb")
+    return false
+  }
+  g_HookMmapReserved1GB = mmap(
+    nil, 0x4000_0000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+  if g_HookMmapReserved1GB == nil {
+    print("can't allocate 1gb")
+    return false
+  }
+  return true
+}
+
+func hookMmap(
+  addr: UnsafeMutableRawPointer?, len: Int, prot: Int32, flags: Int32, fd: Int32, offset: off_t
+) -> UnsafeMutableRawPointer! {
+  print("mmap hook!")
+  // TODO(zhuowei): threads?
+  if g_HookMmapReserved4GB != nil && len == 0x1_0000_0000 {
+    let ret = g_HookMmapReserved4GB
+    g_HookMmapReserved4GB = nil
+    return ret
+  }
+  if g_HookMmapReserved1GB != nil && len == 0x7ff0_0000 {
+    // hack: this returns only 1GB when it asks for 2GB!!
+    let ret = g_HookMmapReserved1GB
+    g_HookMmapReserved1GB = nil
+    return ret
+  }
+  return mmap(addr, len, prot, flags, fd, offset)
+}
+
+func pInvokeOverride(libraryName: UnsafePointer<CChar>!, entrypointName: UnsafePointer<CChar>!)
+  -> UnsafeRawPointer?
+{
+  let libraryName = String(cString: libraryName)
+  let entrypointName = String(cString: entrypointName)
+  // print(libraryName, entrypointName)
+  if entrypointName == "mmap" {
+    typealias MmapType = @convention(c) (
+      _: UnsafeMutableRawPointer?, _: Int, _: Int32, _: Int32, _: Int32, _: off_t
+    ) -> UnsafeMutableRawPointer?
+    return unsafeBitCast(hookMmap as MmapType, to: UnsafeRawPointer.self)
+  }
+  return nil
 }

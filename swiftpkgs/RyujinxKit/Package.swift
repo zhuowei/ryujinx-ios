@@ -29,6 +29,7 @@ let package = Package(
         "RJlibSystem_Native",
         "RJlibSystem_Net_Security_Native",
         "RJlibSystem_Security_Cryptography_Native_Apple",
+        "RJlibMoltenVK",
         "SDL2",
         "FrameworkHeaders",
       ],
@@ -71,6 +72,7 @@ let package = Package(
       name: "RJlibSystem_Security_Cryptography_Native_Apple",
       path: "../RJlibSystem_Security_Cryptography_Native_Apple.xcframework"
     ),
+    .binaryTarget(name: "RJlibMoltenVK", path: "../RJlibMoltenVK.xcframework"),
     .binaryTarget(
       name: "SDL2",
       path: "../../SDL2.xcframework"
