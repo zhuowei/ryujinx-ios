@@ -70,6 +70,10 @@ public func startCoreClr2() {
   SDL_SetMainReady()
   // Debugger crashes during init; turn it off
   setenv("DOTNET_EnableDiagnostics", "0", 1)
+  // set HOME to shut Ryujinx up
+  setenv("HOME", String(validatingUTF8: getenv("HOME"))! + "/Documents", 1)
+  setenv("MVK_DEBUG", "1", 1)
+  setenv("MVK_CONFIG_LOG_LEVEL", "4", 1)
   // We need TRUSTED_PLATFORM_ASSEMBLIES since CoreCLR by default looks in the same directory as libcoreclr.dylib
 
   let resBase = Bundle.module.path(forResource: "res", ofType: nil)!

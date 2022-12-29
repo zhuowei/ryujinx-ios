@@ -15,7 +15,7 @@ DOTNET_DYLIBS = [
 library_paths = [
     "../makenet/runtime/artifacts/bin/coreclr/OSX.arm64.Release/" + a
     for a in DOTNET_DYLIBS
-] + ["../vulkansdk/MoltenVK/dylib/iOS/libMoltenVK.dylib"]
+] + ["../MoltenVK/Package/Release/MoltenVK/dylib/iOS/libMoltenVK.dylib"]
 library_args = []
 for library_path in library_paths:
     library_name = os.path.basename(library_path)
