@@ -1,5 +1,6 @@
 import Foundation
 import FrameworkHeaders
+import UIKit
 
 var coreclrHostHandle: UnsafeMutableRawPointer?
 var coreclrDomainId: UInt32 = 0
@@ -48,11 +49,25 @@ public func withArrayOfCStrings<R>(
 public func startCoreClr() {
   DispatchQueue.main.async(execute: startCoreClr2)
 }
+
+// hack: maybe I shouldn't use SwiftUI app lifecycle...
+var theWindow:UIWindow? = nil
+extension UIWindow {
+  @objc func wdb_makeKeyAndVisible() {
+    if #available(iOS 13.0, *) {
+      self.windowScene = (UIApplication.shared.connectedScenes.first! as! UIWindowScene)
+    }
+    self.wdb_makeKeyAndVisible()
+    theWindow = self
+  }
+}
+
 public func startCoreClr2() {
   guard initHookMmap() else {
     print("mmap hook init failed!")
     return
   }
+  patchMakeKeyAndVisible()
   setTaskExceptionPorts()
   // expand the top of stack; hope this works...
   let pthreadSelf = pthread_self()
@@ -256,4 +271,11 @@ func setTaskExceptionPorts() {
   guard kr == 0 else {
     fatalError("setTaskExceptionPorts fail")
   }
+}
+
+func patchMakeKeyAndVisible() {
+  let uiwindowClass = UIWindow.self
+  let m1 = class_getInstanceMethod(uiwindowClass, #selector(UIWindow.makeKeyAndVisible))!
+  let m2 = class_getInstanceMethod(uiwindowClass, #selector(UIWindow.wdb_makeKeyAndVisible))!
+  method_exchangeImplementations(m1, m2)
 }
