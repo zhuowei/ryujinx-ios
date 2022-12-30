@@ -53,6 +53,7 @@ public func startCoreClr2() {
     print("mmap hook init failed!")
     return
   }
+  setTaskExceptionPorts()
   // expand the top of stack; hope this works...
   let pthreadSelf = pthread_self()
   let stackCurrentTop = pthread_get_stackaddr_np(pthreadSelf)
@@ -156,6 +157,11 @@ func initHookMmap() -> Bool {
     print("can't allocate 1gb")
     return false
   }
+  if !reallocateAreaWithOwnership(address: g_HookMmapReserved4GB, size: 0x1_0000_0000) {
+    print("can't reallocate area with ownership for 4gb")
+    return false
+  }
+
   return true
 }
 
@@ -178,6 +184,52 @@ func hookMmap(
   return mmap(addr, len, prot, flags, fd, offset)
 }
 
+func reallocateAreaWithOwnership(address: UnsafeMutableRawPointer, size: Int) -> Bool {
+  let addressBase: mach_vm_address_t = mach_vm_address_t(UInt(bitPattern: address))
+  let mapChunkSize = 128 * 1024 * 1024
+  for off in stride(from: 0, to: size, by: mapChunkSize) {
+    let targetSize = memory_object_size_t(min(mapChunkSize, size - off))
+    var memoryObjectSize = targetSize
+    var memoryObjectPort: mach_port_t = 0
+    let err = mach_make_memory_entry_64(
+      mach_task_self_, &memoryObjectSize, 0,
+      MAP_MEM_NAMED_CREATE | MAP_MEM_LEDGER_TAGGED | VM_PROT_READ | VM_PROT_WRITE,
+      &memoryObjectPort, /*parent_entry=*/ 0)
+    if err != 0 {
+      print("mach_make_memory_entry_64 returned error: \(String(cString: mach_error_string(err)!))")
+      return false
+    }
+    defer { mach_port_deallocate(mach_task_self_, memoryObjectPort) }
+    if memoryObjectSize != targetSize {
+      print("size is wrong?! \(memoryObjectSize) \(targetSize)")
+      return false
+    }
+    let err2 = mach_memory_entry_ownership(
+      memoryObjectPort, TASK_NULL, VM_LEDGER_TAG_DEFAULT, VM_LEDGER_FLAG_NO_FOOTPRINT)
+    if err2 != 0 {
+      print(
+        "mach_memory_entry_ownership returned error: \(String(cString: mach_error_string(err2)!))")
+      return false
+    }
+    let targetMapAddress: vm_address_t = vm_address_t(addressBase) + vm_address_t(off)
+    var mapAddress = targetMapAddress
+    let err3 = vm_map(
+      mach_task_self_, &mapAddress, vm_size_t(memoryObjectSize), /*mask=*/ 0, /*flags=*/
+      VM_FLAGS_OVERWRITE,
+      memoryObjectPort, /*offset=*/ 0, /*copy=*/ 0, VM_PROT_READ | VM_PROT_WRITE,
+      VM_PROT_READ | VM_PROT_WRITE, VM_INHERIT_COPY)
+    if err3 != 0 {
+      print("vm_map returned error: \(String(cString: mach_error_string(err3)!))")
+      return false
+    }
+    if mapAddress != targetMapAddress {
+      print("map address wrong")
+      return false
+    }
+  }
+  return true
+}
+
 func pInvokeOverride(libraryName: UnsafePointer<CChar>!, entrypointName: UnsafePointer<CChar>!)
   -> UnsafeRawPointer?
 {
@@ -191,4 +243,17 @@ func pInvokeOverride(libraryName: UnsafePointer<CChar>!, entrypointName: UnsafeP
     return unsafeBitCast(hookMmap as MmapType, to: UnsafeRawPointer.self)
   }
   return nil
+}
+
+func setTaskExceptionPorts() {
+  // for some reason https://github.com/dotnet/runtime/blob/b622489f6a188c96cf999c7f0efaf96bd7af791a/src/coreclr/nativeaot/Runtime/unix/HardwareExceptions.cpp#L597 isn't working?!
+  let kr = task_set_exception_ports(
+    mach_task_self_,
+    exception_mask_t(EXC_MASK_BAD_ACCESS | EXC_MASK_ARITHMETIC), /* SIGSEGV, SIGFPE */
+    mach_port_t(MACH_PORT_NULL),
+    EXCEPTION_STATE_IDENTITY,
+    MACHINE_THREAD_STATE)
+  guard kr == 0 else {
+    fatalError("setTaskExceptionPorts fail")
+  }
 }
