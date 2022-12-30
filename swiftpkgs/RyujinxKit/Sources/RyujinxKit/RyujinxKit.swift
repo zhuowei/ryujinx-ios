@@ -245,6 +245,21 @@ func reallocateAreaWithOwnership(address: UnsafeMutableRawPointer, size: Int) ->
   return true
 }
 
+typealias SystemNative_Open_Type = @convention(c) (_ path: UnsafePointer<CChar>, _ flags: Int32, _ mode: Int32) -> Int
+
+var real_SystemNative_Open:SystemNative_Open_Type!
+
+func hook_SystemNative_Open(path: UnsafePointer<CChar>, flags: Int32, mode: Int32) -> Int {
+  let fileName = String(cString: path)
+  if fileName == "/etc/resolv.conf" {
+    let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+      .path
+    let newPath = documentDirectory + "/resolv.conf"
+    return real_SystemNative_Open(newPath, flags, mode)
+  }
+  return real_SystemNative_Open(path, flags, mode)
+}
+
 func pInvokeOverride(libraryName: UnsafePointer<CChar>!, entrypointName: UnsafePointer<CChar>!)
   -> UnsafeRawPointer?
 {
@@ -256,6 +271,10 @@ func pInvokeOverride(libraryName: UnsafePointer<CChar>!, entrypointName: UnsafeP
       _: UnsafeMutableRawPointer?, _: Int, _: Int32, _: Int32, _: Int32, _: off_t
     ) -> UnsafeMutableRawPointer?
     return unsafeBitCast(hookMmap as MmapType, to: UnsafeRawPointer.self)
+  } else if entrypointName == "SystemNative_Open" {
+    let handle = dlopen("libSystem.Native.dylib", RTLD_LOCAL | RTLD_LAZY)
+    real_SystemNative_Open = unsafeBitCast(dlsym(handle, "SystemNative_Open"), to: SystemNative_Open_Type.self)
+    return unsafeBitCast(hook_SystemNative_Open as SystemNative_Open_Type, to: UnsafeRawPointer.self)
   }
   return nil
 }
