@@ -122,7 +122,7 @@ public func startCoreClr2() {
   let rootDirectory = documentDirectory + "/Ryujinx"
   let fileToRun = documentDirectory + "/hbmenu.nro"
   let ryujinxArgs = [
-    "--enable-debug-logs", "true", "--enable-trace-logs", "true", "--memory-manager-mode",
+    "--enable-debug-logs", "false", "--enable-trace-logs", "false", "--memory-manager-mode",
     "SoftwarePageTable", "--graphics-backend", "Vulkan", fileToRun,
   ]
   var err2: Int32 = 0
