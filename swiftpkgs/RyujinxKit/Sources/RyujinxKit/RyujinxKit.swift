@@ -68,7 +68,7 @@ public func startCoreClr2() {
     return
   }
   patchMakeKeyAndVisible()
-  setTaskExceptionPorts()
+  // setTaskExceptionPorts()
   // expand the top of stack; hope this works...
   let pthreadSelf = pthread_self()
   let stackCurrentTop = pthread_get_stackaddr_np(pthreadSelf)
@@ -162,13 +162,13 @@ var g_HookMmapReserved1GB: UnsafeMutableRawPointer! = nil
 func initHookMmap() -> Bool {
   g_HookMmapReserved4GB = mmap(
     nil, 0x1_0000_0000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
-  if g_HookMmapReserved4GB == nil {
+  if g_HookMmapReserved4GB == MAP_FAILED {
     print("can't allocate 4gb")
     return false
   }
   g_HookMmapReserved1GB = mmap(
     nil, 0x4000_0000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
-  if g_HookMmapReserved1GB == nil {
+  if g_HookMmapReserved1GB == MAP_FAILED {
     print("can't allocate 1gb")
     return false
   }
@@ -188,12 +188,14 @@ func hookMmap(
   if g_HookMmapReserved4GB != nil && len == 0x1_0000_0000 {
     let ret = g_HookMmapReserved4GB
     g_HookMmapReserved4GB = nil
+    print("returning 4gb: \(ret!)")
     return ret
   }
   if g_HookMmapReserved1GB != nil && len == 0x7ff0_0000 {
     // hack: this returns only 1GB when it asks for 2GB!!
     let ret = g_HookMmapReserved1GB
     g_HookMmapReserved1GB = nil
+    print("returning 1gb: \(ret!)")
     return ret
   }
   return mmap(addr, len, prot, flags, fd, offset)
