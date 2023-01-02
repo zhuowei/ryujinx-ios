@@ -295,11 +295,8 @@ var real_SystemNative_Open: SystemNative_Open_Type!
 func hook_SystemNative_Open(path: UnsafePointer<CChar>, flags: Int32, mode: Int32) -> Int {
   let fileName = String(cString: path)
   if fileName == "/etc/resolv.conf" {
-    let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[
-      0
-    ]
-    .path
-    let newPath = documentDirectory + "/resolv.conf"
+    let resBase = Bundle.module.path(forResource: "res", ofType: nil)!
+    let newPath = resBase + "/resolv.conf"
     return real_SystemNative_Open(newPath, flags, mode)
   }
   return real_SystemNative_Open(path, flags, mode)

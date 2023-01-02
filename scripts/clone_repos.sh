@@ -5,4 +5,5 @@ git clone --branch ios https://github.com/zhuowei/dotnet-runtime.git makenet/run
 git clone --branch release-2.26.1 https://github.com/libsdl-org/SDL.git
 git clone --branch iospls https://github.com/zhuowei/MoltenVK.git
 git clone https://github.com/zhuowei/SingleFileExtractor.git
-git clone --branch iosbin-hacks https://github.com/zhuowei/Ryujinx.git
+# needs arm64 build device?
+# git clone --branch iosbin-hacks https://github.com/zhuowei/Ryujinx.git
