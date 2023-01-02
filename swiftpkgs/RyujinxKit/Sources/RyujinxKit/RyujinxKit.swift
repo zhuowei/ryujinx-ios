@@ -1,5 +1,6 @@
 import Foundation
 import FrameworkHeaders
+import GameController
 import UIKit
 
 var coreclrHostHandle: UnsafeMutableRawPointer?
@@ -47,7 +48,11 @@ public func withArrayOfCStrings<R>(
 }
 
 public func startCoreClr() {
-  DispatchQueue.main.async(execute: startCoreClr2)
+  if #available(iOS 15.0, *) {
+    showVirtualController()
+  } else {
+    RunLoop.current.perform(startCoreClr2)
+  }
 }
 
 // hack: maybe I shouldn't use SwiftUI app lifecycle...
@@ -59,6 +64,34 @@ extension UIWindow {
     }
     self.wdb_makeKeyAndVisible()
     theWindow = self
+    if #available(iOS 15.0, *) {
+      reconnectVirtualController()
+    }
+  }
+}
+
+@available(iOS 15.0, *)
+var g_gcVirtualController: GCVirtualController!
+@available(iOS 15.0, *)
+func showVirtualController() {
+  let config = GCVirtualController.Configuration()
+  config.elements = [
+    GCInputDirectionalDpad, GCInputButtonA, GCInputButtonB, GCInputButtonX, GCInputButtonY,
+  ]
+  g_gcVirtualController = GCVirtualController(configuration: config)
+  g_gcVirtualController.connect { err in
+    print("controller connect: \(String(describing: err))")
+    RunLoop.current.perform(startCoreClr2)
+  }
+}
+
+@available(iOS 15.0, *)
+func reconnectVirtualController() {
+  g_gcVirtualController.disconnect()
+  DispatchQueue.main.async {
+    g_gcVirtualController.connect { err in
+      print("reconnected: err \(String(describing: err))")
+    }
   }
 }
 
@@ -84,11 +117,12 @@ public func startCoreClr2() {
   }
   // shut up SDL2
   SDL_SetMainReady()
+  SDL_iPhoneSetEventPump(SDL_TRUE)
   // Debugger crashes during init; turn it off
   setenv("DOTNET_EnableDiagnostics", "0", 1)
   // set HOME to shut Ryujinx up
   setenv("HOME", String(validatingUTF8: getenv("HOME"))! + "/Documents", 1)
-  setenv("MVK_DEBUG", "1", 1)
+  //setenv("MVK_DEBUG", "1", 1)
   setenv("MVK_CONFIG_LOG_LEVEL", "4", 1)
   // We need TRUSTED_PLATFORM_ASSEMBLIES since CoreCLR by default looks in the same directory as libcoreclr.dylib
 
@@ -135,10 +169,14 @@ public func startCoreClr2() {
   let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     .path
   let rootDirectory = documentDirectory + "/Ryujinx"
-  let fileToRun = documentDirectory + "/hbmenu.nro"
+  let fileToRun = documentDirectory + "/helltaker_patched.nca"
   let ryujinxArgs = [
     "--enable-debug-logs", "false", "--enable-trace-logs", "false", "--memory-manager-mode",
-    "SoftwarePageTable", "--graphics-backend", "Vulkan", fileToRun,
+    "SoftwarePageTable", "--graphics-backend", "Vulkan",
+    "--enable-fs-integrity-checks", "false",
+    "--input-id-1", "1-3fca0005-05ac-0000-0100-00004f066d01",
+    //"--list-inputs-ids", "true",
+    fileToRun,
   ]
   var err2: Int32 = 0
   withArrayOfCStrings(ryujinxArgs) { ryujinxArgsRaw in
@@ -157,7 +195,7 @@ public func startCoreClr2() {
 }
 
 var g_HookMmapReserved4GB: UnsafeMutableRawPointer! = nil
-var g_HookMmapReserved1GB: UnsafeMutableRawPointer! = nil
+var g_HookMmapReservedJitCache: UnsafeMutableRawPointer! = nil
 
 func initHookMmap() -> Bool {
   g_HookMmapReserved4GB = mmap(
@@ -166,10 +204,11 @@ func initHookMmap() -> Bool {
     print("can't allocate 4gb")
     return false
   }
-  g_HookMmapReserved1GB = mmap(
-    nil, 0x4000_0000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
-  if g_HookMmapReserved1GB == MAP_FAILED {
-    print("can't allocate 1gb")
+  // hack: 512mb instead of the 2GB it wants
+  g_HookMmapReservedJitCache = mmap(
+    nil, 0x2000_0000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+  if g_HookMmapReservedJitCache == MAP_FAILED {
+    print("can't allocate jit cache")
     return false
   }
   if !reallocateAreaWithOwnership(address: g_HookMmapReserved4GB, size: 0x1_0000_0000) {
@@ -183,7 +222,7 @@ func initHookMmap() -> Bool {
 func hookMmap(
   addr: UnsafeMutableRawPointer?, len: Int, prot: Int32, flags: Int32, fd: Int32, offset: off_t
 ) -> UnsafeMutableRawPointer! {
-  print("mmap hook!")
+  print("mmap hook! \(String(describing: addr)) \(len) \(prot) \(flags)")
   // TODO(zhuowei): threads?
   if g_HookMmapReserved4GB != nil && len == 0x1_0000_0000 {
     let ret = g_HookMmapReserved4GB
@@ -191,11 +230,11 @@ func hookMmap(
     print("returning 4gb: \(ret!)")
     return ret
   }
-  if g_HookMmapReserved1GB != nil && len == 0x7ff0_0000 {
-    // hack: this returns only 1GB when it asks for 2GB!!
-    let ret = g_HookMmapReserved1GB
-    g_HookMmapReserved1GB = nil
-    print("returning 1gb: \(ret!)")
+  if g_HookMmapReservedJitCache != nil && len == 0x7ff0_0000 {
+    // Hack: it wants 2GB; give it smaller
+    let ret = g_HookMmapReservedJitCache
+    g_HookMmapReservedJitCache = nil
+    print("returning jitcache: \(ret!)")
     return ret
   }
   return mmap(addr, len, prot, flags, fd, offset)
