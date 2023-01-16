@@ -169,7 +169,7 @@ public func startCoreClr2() {
   let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     .path
   let rootDirectory = documentDirectory + "/Ryujinx"
-  let fileToRun = documentDirectory + "/helltaker_patched.nca"
+  let fileToRun = documentDirectory + "/pokemonbd_out.nca"
   let ryujinxArgs = [
     "--enable-debug-logs", "false", "--enable-trace-logs", "false", "--memory-manager-mode",
     "SoftwarePageTable", "--graphics-backend", "Vulkan",
@@ -198,21 +198,28 @@ var g_HookMmapReserved4GB: UnsafeMutableRawPointer! = nil
 var g_HookMmapReservedJitCache: UnsafeMutableRawPointer! = nil
 
 func initHookMmap() -> Bool {
+  // Hack: if out of memory, you can reserve less (e.g. around 0xc000_0000 or even 0x8000_0000) but it'll crash later
+  let reserve4GBSize = 0x1_0000_0000
   g_HookMmapReserved4GB = mmap(
-    nil, 0x1_0000_0000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+    nil, reserve4GBSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
   if g_HookMmapReserved4GB == MAP_FAILED {
     print("can't allocate 4gb")
     return false
   }
+  let reserveJitCacheSize = 0x2000_0000
   // hack: 512mb instead of the 2GB it wants
   g_HookMmapReservedJitCache = mmap(
-    nil, 0x2000_0000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+    nil, reserveJitCacheSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
   if g_HookMmapReservedJitCache == MAP_FAILED {
     print("can't allocate jit cache")
     return false
   }
-  if !reallocateAreaWithOwnership(address: g_HookMmapReserved4GB, size: 0x1_0000_0000) {
+  if !reallocateAreaWithOwnership(address: g_HookMmapReserved4GB, size: reserve4GBSize) {
     print("can't reallocate area with ownership for 4gb")
+    return false
+  }
+  if !reallocateAreaWithOwnership(address: g_HookMmapReservedJitCache, size: reserveJitCacheSize) {
+    print("can't reallocate area with ownership for jitcache")
     return false
   }
 
@@ -249,7 +256,7 @@ func reallocateAreaWithOwnership(address: UnsafeMutableRawPointer, size: Int) ->
     var memoryObjectPort: mach_port_t = 0
     let err = mach_make_memory_entry_64(
       mach_task_self_, &memoryObjectSize, 0,
-      MAP_MEM_NAMED_CREATE | MAP_MEM_LEDGER_TAGGED | VM_PROT_READ | VM_PROT_WRITE,
+      MAP_MEM_NAMED_CREATE | MAP_MEM_LEDGER_TAGGED | VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE,
       &memoryObjectPort, /*parent_entry=*/ 0)
     if err != 0 {
       print("mach_make_memory_entry_64 returned error: \(String(cString: mach_error_string(err)!))")
@@ -273,7 +280,7 @@ func reallocateAreaWithOwnership(address: UnsafeMutableRawPointer, size: Int) ->
       mach_task_self_, &mapAddress, vm_size_t(memoryObjectSize), /*mask=*/ 0, /*flags=*/
       VM_FLAGS_OVERWRITE,
       memoryObjectPort, /*offset=*/ 0, /*copy=*/ 0, VM_PROT_READ | VM_PROT_WRITE,
-      VM_PROT_READ | VM_PROT_WRITE, VM_INHERIT_COPY)
+      VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE, VM_INHERIT_COPY)
     if err3 != 0 {
       print("vm_map returned error: \(String(cString: mach_error_string(err3)!))")
       return false
@@ -294,6 +301,7 @@ var real_SystemNative_Open: SystemNative_Open_Type!
 
 func hook_SystemNative_Open(path: UnsafePointer<CChar>, flags: Int32, mode: Int32) -> Int {
   let fileName = String(cString: path)
+  print("opening \(fileName)")
   if fileName == "/etc/resolv.conf" {
     let resBase = Bundle.module.path(forResource: "res", ofType: nil)!
     let newPath = resBase + "/resolv.conf"
