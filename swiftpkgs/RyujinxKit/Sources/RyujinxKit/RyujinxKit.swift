@@ -206,8 +206,7 @@ func initHookMmap() -> Bool {
     print("can't allocate 4gb")
     return false
   }
-  let reserveJitCacheSize = 0x2000_0000
-  // hack: 512mb instead of the 2GB it wants
+  let reserveJitCacheSize = 0x8000_0000
   g_HookMmapReservedJitCache = mmap(
     nil, reserveJitCacheSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
   if g_HookMmapReservedJitCache == MAP_FAILED {
