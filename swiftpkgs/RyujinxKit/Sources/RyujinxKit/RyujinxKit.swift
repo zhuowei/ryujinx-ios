@@ -169,7 +169,7 @@ public func startCoreClr2() {
   let documentDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     .path
   let rootDirectory = documentDirectory + "/Ryujinx"
-  let fileToRun = documentDirectory + "/pokemonbd_out.nca"
+  let fileToRun = documentDirectory + "/pokemonbd.nsp"
   let ryujinxArgs = [
     "--enable-debug-logs", "false", "--enable-trace-logs", "false", "--memory-manager-mode",
     "SoftwarePageTable", "--graphics-backend", "Vulkan",
